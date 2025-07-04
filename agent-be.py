@@ -1,7 +1,9 @@
 from autogen_agentchat.agents import AssistantAgent
 from autogen_ext.models.openai import OpenAIChatCompletionClient
+from autogen_agentchat.teams import RoundRobinGroupChat
 from dotenv import load_dotenv
 import os
+import asyncio
 import arxiv
 from typing import List, Dict, AsyncGenerator
 load_dotenv()
@@ -21,7 +23,6 @@ def arxiv_search(query:str, max_results:int = 5) -> List[Dict]:
         max_results=max_results,
         sort_by=arxiv.SortCriterion.Relevance,
     )
-    
     paper: List[Dict] = []
     for result in client.results(search):
         paper.append(
@@ -38,29 +39,47 @@ def arxiv_search(query:str, max_results:int = 5) -> List[Dict]:
     
     
     
-# arxiv_researcher_agent = AssistantAgent(
-#     name = "arxiv_researcher_agent",
-#     description="the agent create arXivthe queies and retrives candidates papers",
-#     model_client=openai_brain,
-#     tools= [arxiv_search],
-#     system_message=''
+arxiv_researcher_agent = AssistantAgent(
+    name = "arxiv_researcher_agent",
+    description="the agent create arXivthe queies and retrives candidates papers",
+    model_client=openai_brain,
+    tools= [arxiv_search],
+    system_message=(
+            "Given a user topic, think of the best arXiv query and call the"
+            "provided tool. Always fetch five-times the papers requested so"
+            "tnat you can down-select the most relevant ones. When the tool"
+            "returns, choose exactly the number of papers requested and pass"
+            "then as concise JSON to the summarizer"
+    )
     
-# )
+)
 
-# summarizer_agent = AssistantAgent(
-#     name = 'summarizer-agent',
-#     description="the agent ahich summarizer the result",
-#     model_client=openai_brain,
-#     system_message=(
-#         "You are an expert researcher. when you recive the JSON list of"
-#         "papers, with a literature-review style report in Markdown:\n"\
-#         "1. start with 2-3 sentences of introduction of the topic.\n "\
-#         "2. Then include one bullets per paper with:title (as Markdown"
-#         "link), authors, the specific problem problem trackled, and its key"
-#         "contribution.\n"\
-#         "3. Close with a single-sentence takeaway."
-#     ),
+summarizer_agent = AssistantAgent(
+    name = 'summarizer_agent',
+    description="the agent ahich summarizer the result",
+    model_client=openai_brain,
+    system_message=(
+        "You are an expert researcher. when you recive the JSON list of"
+        "papers, with a literature-review style report in Markdown:\n"\
+        "1. start with 2-3 sentences of introduction of the topic.\n "\
+        "2. Then include one bullets per paper with:title (as Markdown"
+        "link), authors, the specific problem problem trackled, and its key"
+        "contribution.\n"\
+        "3. Close with a single-sentence takeaway."
+    ),
     
-# )
+)
 
-print(arxiv_search(query="agentic_ai"))
+team  = RoundRobinGroupChat(
+    participants=[arxiv_researcher_agent, summarizer_agent],
+    max_turns=5)
+
+async def run_team():
+    task  = "Condict a literature review on the topic - Autogen and return exactly 5 paper."
+    
+    async for msg in team.run_stream(task=task):
+        print(msg)
+        
+        
+if (__name__ == '__main__'):
+    asyncio.run(run_team())
